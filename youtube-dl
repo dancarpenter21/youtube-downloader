@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Download a video with the jauderho yt-dlp image.
+# Usage: ./youtube-dl [--cookies <file>] <url>
+# yt-dlp names the file (title and id) in the current directory.
+set -euo pipefail
+
+IMAGE="${YTDLP_IMAGE:-ghcr.io/jauderho/yt-dlp:latest}"
+
+usage() {
+  echo "Usage: ./youtube-dl [--cookies <file>] <url>" >&2
+  exit 2
+}
+
+cookies_file="${YTDLP_COOKIES:-}"
+if [[ "${1:-}" == --cookies ]]; then
+  [[ $# -ge 3 && -n "$2" ]] || usage
+  cookies_file="$2"
+  shift 2
+fi
+
+case "${1:-}" in
+  ""|-h|--help)
+    usage
+    ;;
+  -*)
+    echo "Unknown option: $1" >&2
+    usage
+    ;;
+esac
+
+[[ $# -eq 1 ]] || usage
+url="$1"
+
+tty_args=()
+if [[ -t 1 ]]; then
+  tty_args=(-t)
+fi
+
+cookie_mount=()
+cookie_args=()
+if [[ -n "$cookies_file" ]]; then
+  if [[ ! -f "$cookies_file" || ! -r "$cookies_file" ]]; then
+    echo "Cookies file is not a readable file: $cookies_file" >&2
+    exit 2
+  fi
+  # yt-dlp updates its cookie jar. Use a private copy so the export is preserved.
+  cookie_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$cookie_dir"' EXIT
+  cp -- "$cookies_file" "$cookie_dir/cookies.txt"
+  cookie_mount=(-v "$cookie_dir:/cookies:rw")
+  cookie_args=(--cookies /cookies/cookies.txt)
+fi
+
+docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD:/downloads:rw" \
+  "${tty_args[@]}" \
+  "${cookie_mount[@]}" \
+  "$IMAGE" \
+  "${cookie_args[@]}" \
+  "$url"
